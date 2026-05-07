@@ -21,7 +21,7 @@ The objective is to guide the Rover through a personalized terrain filled with o
 
 ### Map Logic & Obstacle Placement
 
-The 8x8 grid is a 2D array in memory. Obstacles are calculated using the following modulo arithmetic for each student ID (d1d2d3d4d5d6d7d8):
+The 8x8 grid is a 2D array in memory. Obstacles are calculated using the following modulo arithmetic for each student ID (d1 d2 d3 d4 d5 d6 d7 d8):
 
 * Obstacle 1: Row = d7 mod 8, Col = d8 mod 8
 * Obstacle 2: Row = d5 mod 8, Col = d6 mod 8
