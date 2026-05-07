@@ -125,10 +125,6 @@ error_handler:
     INT 21h
     JMP start_input_section 
     
-; =======================================================================
-; --- START OF HUMAN-EXPLAINED LOGIC ---
-; =======================================================================
-
 start_movement:
     ; Ok, we validated the input, time to actually move the rover.
     LEA SI, USER_BUFFER + 2     ; why +2 because USER_BUFFER has max num allowed , +1 how many were typed , +2 the actual user_input( like a pointer to the array )
