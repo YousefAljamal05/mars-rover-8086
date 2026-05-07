@@ -1,2 +1,410 @@
 ; this project was implemented using these 3 ID's
 ; 20230363  20231158  20230087
+DATA SEGMENT
+    UniIds      DB "230363231158230087"  
+    map         DB 64 DUP('.')           ; 8x8 grid stored as a 1D array
+    hello       DB 8                     ; Grid width and divisor for modulo math
+    EnterInput  DB 13, 10, "Please enter movement commands (max 20):$"   
+    USER_BUFFER DB 21, 0, 22 DUP('$')    ; saves the user input
+    ErrorMsg    DB 13, 10, "Invalid input, try again!$" 
+    
+    ; --- UPDATED MESSAGES ---
+    MsgBoundary DB 13, 10, "Error: Boundary breach! Fuel Remaining: $"
+    MsgCrash    DB 13, 10, "CRITICAL FAILURE: Rover Crashed! Fuel Remaining: $"
+    MsgDone     DB 13, 10, "Sequence Complete. Fuel Remaining: $"
+    Fuel        DB 20                    ; Rover starts with 20 fuel
+DATA ENDS
+
+STACK SEGMENT
+    DW 128 DUP(0)
+STACK ENDS
+
+CODE SEGMENT
+START:
+    MOV AX, DATA
+    MOV DS, AX
+    MOV ES, AX 
+
+    LEA SI, UniIds
+    LEA DI, map 
+    MOV CX, 9                
+
+rem:
+    MOV AL, [SI]
+    SUB AL, 30h              
+    MOV AH, 0
+    DIV hello                
+    MOV BL, AH
+
+    MOV AL, [SI+1]
+    SUB AL, 30h
+    MOV AH, 0
+    DIV hello                
+    MOV BH, AH 
+
+    MOV AL, BL
+    MUL hello                
+    MOV BL, BH
+    MOV BH, 0
+    ADD AX, BX               
+
+    CMP AX, 0
+    JNE place_it             
+    MOV AX, 1                
+    
+place_it:
+    MOV BX, AX
+    MOV [DI+BX], 'O'         
+    ADD SI, 2                
+    LOOP rem
+
+    
+    ; we need to place 2 'F's on the board 
+    ; craters ('O'), we scan the map backwards starting from the very bottom-right.
+    MOV CX, 2                ; we want to place 2 Fuel stations
+    MOV BX, 63               ; start at index 63 (bottom-right corner)  
+    ; this function to place fuel
+place_fuel_loop:
+    CMP [map + BX], '.'      ; Is this spot empty?
+    JNE skip_fuel_spot       ; If the spot has a '.' place the F , If it is not a '.' ( OBSTCALE) skip it 
+    MOV [map + BX], 'F'      ; Nice, it's empty. Drop a Fuel 'F' here.
+    DEC CX                   ; in the first itertion the ZF = 0  and it doesnot jump , in the second cx becomes zero so ZF = 1 so it does jump and print 
+    JZ done_fuel             ; If we placed both, exit the loop.
+skip_fuel_spot:
+    DEC BX                   ; Move backwards one spot on the grid
+    JMP place_fuel_loop
+    
+done_fuel:
+    MOV [map], 'R'           ; Initialize Rover 'R' at starting position (0,0)
+    CALL DISPLAY_MAP         ; when done put the fuels print the map
+    
+start_input_section:
+    MOV AH, 09h
+    LEA DX, EnterInput
+    INT 21h
+   
+    MOV AH, 0Ah         
+    LEA DX, USER_BUFFER 
+    INT 21h
+    
+validate_input:
+    LEA SI, USER_BUFFER + 2  
+    MOV CL, [USER_BUFFER + 1]
+    MOV CH, 0                
+    JCXZ start_input_section 
+
+check_char:
+    MOV AL, [SI]             
+    
+    CMP AL, 'a'
+    JB compare_up
+    CMP AL, 'z'
+    JA compare_up
+    SUB AL, 20h              
+
+compare_up:
+    CMP AL, 'U'
+    JE valid
+    CMP AL, 'D'
+    JE valid
+    CMP AL, 'L'
+    JE valid
+    CMP AL, 'R'
+    JE valid
+
+    JMP error_handler        
+
+valid:
+    INC SI
+    LOOP check_char          
+    JMP start_movement       
+
+error_handler:
+    MOV AH, 09h
+    LEA DX, ErrorMsg         
+    INT 21h
+    JMP start_input_section 
+    
+; =======================================================================
+; --- START OF HUMAN-EXPLAINED LOGIC ---
+; =======================================================================
+
+start_movement:
+    ; Ok, we validated the input, time to actually move the rover.
+    LEA SI, USER_BUFFER + 2     ; why +2 because USER_BUFFER has max num allowed , +1 how many were typed , +2 the actual user_input( like a pointer to the array )
+    MOV CL, [USER_BUFFER + 1]   ; to know how many chars the user entered
+    MOV CH, 0                   ; Clear CH just to be safe so CX doesn't have garbage data
+    MOV BX, 0                   ; BX acts as our Rover's GPS. It starts at index 0 (top-left).
+
+move_loop:
+    PUSH CX                     ; We are about to do BIOS stuff, so we save our loop count
+    MOV AL, [SI]                ; Grab the current letter we are looking at from your string.
+    
+    ; Just in case a lowercase letter snuck through, we force it to uppercase here.
+    CMP AL, 'a'
+    JB continue_move
+    SUB AL, 20h                 ; Subtracting 20h from a lowercase ASCII makes it uppercase.( 32d)
+
+continue_move:
+    MOV DX, BX                  ; We copy our current position (BX) into DX. 
+                                
+
+    CMP AL, 'U'
+    JE move_up
+    CMP AL, 'D'
+    JE move_down
+    CMP AL, 'L'
+    JE move_left
+    CMP AL, 'R'
+    JE move_right
+    JMP skip_char               ; If it's none of these, just skip it.
+
+move_up:
+    ; To go UP, we subtract 8 from our index. But first, check if we are already in the top row.
+    CMP BX, 8                   ; Are we in an index less than 8? (Row 0)
+    JB boundary_err             ; If yes, going up is illegal. Throw the boundary error.   (' < ')
+    SUB DX, 8                   ; Otherwise, subtract 8 from our target.
+    JMP apply_move
+
+move_down:
+    ; To go DOWN, we add 8. Let's check if we are in the bottom row first.
+    CMP BX, 56                  ; Are we at index 56 or higher? (Row 7)
+    JAE boundary_err            ; If yes, going down is illegal. Throw the error.
+    ADD DX, 8                   ; Otherwise, add 8 to our target.
+    JMP apply_move
+
+move_left:
+    ; Going LEFT means subtracting 1. But if we are on the left edge (column 0), it's illegal.
+    MOV AX, BX                  
+    MOV AH, 0
+    DIV hello                   ; We divide our index by 8. The remainder (AH) is our Column.
+    CMP AH, 0                   ; Are we at Column 0?
+    JE boundary_err             ; If yes, we can't go left. Throw the error.
+    SUB DX, 1                   ; Otherwise, subtract 1 from target.
+    JMP apply_move
+
+move_right:
+    ; Going RIGHT means adding 1. If we are on the right edge (column 7), it's illegal.
+    MOV AX, BX
+    MOV AH, 0
+    DIV hello                   ; Divide index by 8. Remainder is Column.
+    CMP AH, 7                   ; Are we at Column 7?
+    JE boundary_err             ; If yes, we can't go right. Throw the error.
+    ADD DX, 1                   ; Otherwise, add 1 to target.
+
+apply_move:
+    ; DX now holds our safe target index. Let's look at what is sitting there on the map.
+    MOV DI, DX
+    CMP [map + DI], 'O'         ; Did we just step on a Crater?
+    JE crash_err                ; Yup. Go to the crash sequence.
+    
+    CMP [map + DI], 'F'         ; Did we just step on our Fuel pickup?
+    JE found_fuel               ; Awesome! Go run the fuel logic.
+    JMP normal_move             ; It's just an empty space (or old trail). Move normally.
+
+found_fuel:
+    ; We hit 'F'! Give the player a reward.
+    ADD Fuel, 5                 ; Add 5 to our Fuel variable in memory.
+    ; No more beep here. It falls straight through to normal_move to take the cell's place.
+
+normal_move:
+    
+    ; Clearing the screen destroys BX and DX. We NEED those registers because they 
+    ; hold our Rover's positions. So, we PUSH them to safety before we clear the screen.
+    PUSH BX                     
+    PUSH DX                     
+
+    ; --- CLEAN SCREEN ---
+    MOV AX, 0600h               ; BIOS function to scroll/clear screen.
+    MOV BH, 07h                 ; Normal black background.
+    MOV CX, 0000h               ; Top left corner of screen.
+    MOV DX, 184Fh               ; Bottom right corner of screen.
+    INT 10h
+
+    ; --- THE FIX: RESET THE CURSOR ---
+    ; This stops the screen from scrolling and deleting your first column!
+    ; We force the invisible typing cursor to snap back to the very top-left corner.
+    MOV AH, 02h                 ; BIOS: Set Cursor Position function
+    MOV BH, 00h                 ; Display Page 0
+    MOV DH, 00h                 ; Set Row to 0
+    MOV DL, 00h                 ; Set Column to 0
+    INT 10h                     ; Snap cursor to the top-left!
+
+    ; --- BRING COORDINATES BACK ---
+    POP DX                      ; Get our target position back safe and sound.
+    POP BX                      ; Get our current position back safe and sound.
+
+    ; --- UPDATE THE MAP ARRAY ---
+    MOV [map + BX], '*'         ; Put a '*' where the rover used to be (the trail).
+    MOV BX, DX                  ; Officially update the rover's GPS to the new target.
+    MOV [map + BX], 'R'         ; Drop the 'R' onto the new spot.
+    DEC Fuel                    ; Moving costs 1 fuel. Subtract it.
+    
+    CALL DISPLAY_MAP            ; Now that memory is updated, redraw the scree!
+
+    ; --- SMALL DELAY ---
+    ; If we don't do this, the rover teleports instantly. This makes it visible.
+    MOV CX, 01h                 
+    MOV DX, 86A0h               ; Together CX and DX tell the BIOS to wait ~0.1 seconds.
+    MOV AH, 86h
+    INT 15h
+
+skip_char:
+    INC SI                      ; Point to the next letter in the user's string.
+    POP CX                      ; Get our loop counter back.
+    LOOP move_loop              ; Go back to the top and do it again for the next letter.
+    
+    ; --- SUCCESS SECTION ---
+    LEA DX, MsgDone
+    MOV AH, 09h
+    INT 21h
+    JMP print_fuel_and_exit     ; Go print the fuel
+
+boundary_err:
+    ; You hit a wall. Print the boundary message.
+    LEA DX, MsgBoundary
+    MOV AH, 09h
+    INT 21h
+    JMP print_fuel_and_exit     ; Go print the fuel!
+
+crash_err:
+    ; You hit a crater. Make an angry beep and print the crash message.
+    MOV DL, 7                   
+    MOV AH, 02h
+    INT 21h
+    LEA DX, MsgCrash
+    MOV AH, 09h
+    INT 21h
+    ; Fall straight through to print the fuel!
+
+print_fuel_and_exit:
+    ; --- PRINT FUEL ALGORITHM ---
+    ; No matter how the game ended (Win, Crash, Wall), we end up here to print the fuel score.
+    ; Fuel is a number . We can't just print "24" because DOS only prints 
+    ; one ASCII character at a time. We have to split it into '2' and '4'.
+    MOV AL, Fuel
+    MOV AH, 0
+    MOV CL, 10
+    DIV CL                      ; Divide fuel by 10. AL gets the tens (2), AH gets the ones (4).
+    MOV BX, AX                  ; Save it in BX so we don't lose it.
+
+    MOV DL, BL                  ; Grab the tens digit.
+    ADD DL, 30h                 ; Add 30h to turn the raw number into a printable ASCII text character.
+    MOV AH, 02h
+    INT 21h                     ; Print it.
+    
+    MOV DL, BH                  ; Grab the ones digit.
+    ADD DL, 30h                 ; Turn it into ASCII text.
+    MOV AH, 02h
+    INT 21h                     ; Print it.
+
+finish:
+    ; Tell DOS we want to close the program cleanly.
+    MOV AH, 4Ch      
+    INT 21h
+
+; =======================================================================
+;  PROCEDURE TO DRAW THE COLORED 8x8 GRID ---
+; =======================================================================
+DISPLAY_MAP PROC
+    ; Save every register we are about to use so we don't mess up the main program.
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+
+    ; Print some empty lines to separate the map from the text at the top of the screen.
+    MOV DL, 13    ; this to make the cursor at the far left of the screen
+    MOV AH, 02h
+    INT 21h
+    MOV DL, 10    ; this to get one line downward
+    INT 21h
+
+    LEA SI, map          
+    MOV CX, 8            ; Outer loop: We have 8 rows to print.
+    
+PRINT_ROW:
+    PUSH CX              ; Save the outer row counter.
+    MOV CX, 8            ; Inner loop: We have 8 columns in this row to print.
+
+PRINT_COL:
+    MOV AL, [SI]         ; Grab the exact character from the map memory array.
+
+    ; --- WHAT COLOR SHOULD IT BE? ---
+    CMP AL, 'R'
+    JE color_rover       ; If it's R, go color it Green.
+    CMP AL, 'O'
+    JE color_crater      ; If it's O, go color it Red.
+    CMP AL, '*'
+    JE color_trail       ; If it's *, go color it Yellow.
+    CMP AL, 'F'
+    JE color_fuel        ; If it's F, go color it Cyan!
+
+    ; If it didn't jump, it must be an empty dot (.). Make it dark grey.
+    MOV BL, 08h          
+    JMP draw_char
+
+color_rover:
+    MOV BL, 0Ah          ; 0A = Light Green
+    JMP draw_char
+
+color_crater:
+    MOV BL, 0Ch          ; 0C = Light Red
+    JMP draw_char
+
+color_trail:
+    MOV BL, 0Eh          ; 0E = Yellow
+    JMP draw_char
+
+color_fuel:
+    MOV BL, 0Bh          ; 0B = Light Cyan (Bright Blue)
+
+draw_char:
+    PUSH CX              ; BIOS interrupts destroy CX. We need to save our column loop counter!
+
+    ; 1. Print the actual character with the color we just picked (BL).
+    MOV AH, 09h          ; this service to print the char and it color  ( the color is at bl ) 
+    MOV BH, 00h          ; this determine the screen we are printing at ( because old computers had multiple screens ) 
+    MOV CX, 1            ; We only want to print it 1 time
+    INT 10h
+
+    ; 2. Move the invisible typing cursor to the right.
+    MOV AH, 03h          ; Get where the cursor currently is.
+    INT 10h                                                   
+    INC DL               ; Move it 1 spot right.
+    MOV AH, 02h          ; Tell BIOS to set the cursor to this new spot.  and because it is colored we have to use the int 10h way if we removed the map will be distribted because we didnot go to the right
+    INT 10h
+
+    POP CX               ; Ok, get our column counter back!
+
+    ; 3. Print an empty space after the character so the map isn't squished together.
+    MOV DL, ' '          
+    MOV AH, 02h          
+    INT 21h              
+    
+    INC SI               ; Point to the next character in memory.
+    LOOP PRINT_COL       ; Loop back and do the next column in this row.
+
+    ; --- We finished a row! Print a "New Line" to go to the next line down. ---
+    MOV DL, 13           
+    MOV AH, 02h          
+    INT 21h
+    MOV DL, 10           
+    MOV AH, 02h
+    INT 21h
+
+    POP CX               ; Get our outer row counter back.
+    LOOP PRINT_ROW       ; Loop back and do the next row!
+    
+    ; We are done drawing. Give all the original registers back to the main program.
+    POP SI               
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET                  
+DISPLAY_MAP ENDP
+
+ENDS      
+END START
