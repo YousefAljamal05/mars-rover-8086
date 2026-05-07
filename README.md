@@ -14,6 +14,8 @@ The objective is to guide the Rover through a personalized terrain filled with o
 * **Collision Detection**: If the Rover hits a crater, a warning beep sounds and the mission is aborted.
 * **Fuel System**: The Rover starts with a 20-unit fuel battery, deducting 1 unit per successful move.
 * **Visual Animation**: The grid updates with a small delay loop so the user can watch the Rover move step-by-step.
+* **Bonus Feature - Fuel Tanks**: The grid includes fuel tanks. When the Rover navigates to a fuel tank, 5 units are added to the fuel battery.
+* **Bonus Feature - Path Tracing**: As the Rover navigates the grid, it leaves behind a visual trace to keep track of its movement history.
 
 ## Technical Specifications
 
@@ -27,13 +29,14 @@ The 8x8 grid is a 2D array in memory. Obstacles are calculated using the followi
 
 Note: The Rover always starts at coordinate (0,0). If an obstacle coordinate lands exactly on (0,0), it is manually shifted to (0,1).
 
-### Movement Commands
+### Grid Legend
 
-The system uses the following ASCII legend for the display:
+The system uses the following ASCII characters for the display:
 * . : Empty Space
 * O : Craters (Obstacles)
 * R : Rover (Starting at 0,0)
-* F : Fuel Tank ( adds 5 to the tank )
+* F : Fuel Tank (+5 Fuel Units)
+* * : Rover Path Trace
 
 ## Execution Outcomes
 
